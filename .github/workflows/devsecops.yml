@@ -1,0 +1,326 @@
+name: ATLAS DevSecOps
+
+# Pipeline CI/CD con controles de seguridad (Shift-Left).
+# Etapas: Source -> Build/Test -> Análisis de seguridad -> Deploy staging -> DAST -> Deploy.
+# Ver docs/seguridad/PIPELINE.md para secretos, variables y criterios.
+#
+# El proyecto es INTENCIONALMENTE vulnerable (ramo de seguridad de software), por lo
+# que los controles de seguridad se ejecutan y generan reporte, pero NO bloquean el
+# pipeline salvo que se defina la variable de repositorio SECURITY_GATE = true.
+
+on:
+  push:
+    branches: [main, qa]
+  pull_request:
+    branches: [main, qa]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. SOURCE - Validación de secretos (el primero: es el control más rápido)
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Secretos (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Escanear secretos en el historial
+        continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.18.4 detect --source=/repo \
+            --report-format=sarif --report-path=/repo/gitleaks.sarif \
+            --redact --verbose
+
+      - name: Publicar reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-gitleaks
+          path: gitleaks.sarif
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 2. BUILD + TEST - Backend (base de la pirámide: pruebas rápidas primero)
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Backend (build + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [secrets]
+    defaults:
+      run:
+        working-directory: BACKEND
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: BACKEND/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Validar sintaxis
+        run: find src -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Pruebas unitarias / humo con cobertura
+        run: |
+          mkdir -p coverage
+          node --test --experimental-test-coverage --test-coverage-include="src/**" \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=lcov --test-reporter-destination=coverage/lcov.info \
+            "tests/**/*.test.js"
+
+      - name: Ajustar rutas del lcov a la raíz del repo (SonarCloud)
+        run: sed -i 's#^SF:#SF:BACKEND/#' coverage/lcov.info
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-backend
+          path: BACKEND/coverage/lcov.info
+
+  # ---------------------------------------------------------------------------
+  # 2. BUILD + TEST - Frontend
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [secrets]
+    defaults:
+      run:
+        working-directory: FRONTEND
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: FRONTEND/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Calidad de código; usa el mismo interruptor que los controles de seguridad.
+      - name: Lint
+        continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # 3. ANÁLISIS DE SEGURIDAD - SCA (dependencias) con Snyk, backend y frontend
+  # ---------------------------------------------------------------------------
+  sca:
+    name: SCA Snyk (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [secrets]
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [BACKEND, FRONTEND]
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verificar token de Snyk
+        if: env.SNYK_TOKEN == ''
+        run: echo "::warning::SNYK_TOKEN no está definido; se omite el análisis SCA."
+
+      - name: Instalar dependencias (sin scripts)
+        if: env.SNYK_TOKEN != ''
+        working-directory: ${{ matrix.project }}
+        run: npm ci --ignore-scripts
+
+      - name: Snyk test
+        if: env.SNYK_TOKEN != ''
+        working-directory: ${{ matrix.project }}
+        continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
+        run: |
+          npm install -g snyk
+          snyk test --severity-threshold=high --sarif-file-output=snyk-${{ matrix.project }}.sarif
+
+      - name: Publicar reporte
+        if: always() && env.SNYK_TOKEN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-snyk-${{ matrix.project }}
+          path: ${{ matrix.project }}/snyk-${{ matrix.project }}.sarif
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 3. ANÁLISIS DE SEGURIDAD - SAST con SonarCloud (backend + frontend)
+  # ---------------------------------------------------------------------------
+  sast:
+    name: SAST SonarCloud
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend, frontend]
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # SonarCloud necesita el historial completo para atribuir issues
+
+      - name: Verificar token de SonarCloud
+        if: env.SONAR_TOKEN == ''
+        run: echo "::warning::SONAR_TOKEN no está definido; se omite el análisis SAST."
+
+      - name: Descargar cobertura del backend
+        if: env.SONAR_TOKEN != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: cobertura-backend
+          path: BACKEND/coverage
+
+      - name: Análisis SonarCloud
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v5
+        continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
+        with:
+          args: >
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.qualitygate.wait=${{ vars.SECURITY_GATE == 'true' }}
+
+  # ---------------------------------------------------------------------------
+  # 4. DEPLOY STAGING + DAST - OWASP ZAP (Spider -> Active Scan -> Report)
+  #    Solo contra el entorno efímero levantado en este runner (propio y autorizado).
+  # ---------------------------------------------------------------------------
+  staging-dast:
+    name: Staging + DAST (OWASP ZAP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      # BACKEND/Dockerfile hace COPY uploads/ y ese directorio no está versionado.
+      - name: Preparar directorio de uploads
+        run: mkdir -p BACKEND/uploads
+
+      - name: Levantar staging (docker compose)
+        run: docker compose up -d --build
+
+      - name: Esperar servicios
+        run: |
+          for url in http://localhost:4450/ http://localhost:3350/; do
+            ok=0
+            for i in $(seq 1 40); do
+              if curl -fsS -o /dev/null "$url"; then ok=1; break; fi
+              sleep 3
+            done
+            [ "$ok" = 1 ] || { echo "::error::$url no respondió a tiempo"; docker compose logs; exit 1; }
+          done
+
+      - name: Pruebas E2E de humo sobre staging
+        run: |
+          curl -fsS http://localhost:4450/ | grep -q '"status":"ok"'
+          curl -fsS -o /dev/null http://localhost:4450/docs/
+          curl -fsS http://localhost:3350/ | grep -q 'id="root"'
+
+      - name: ZAP Full Scan - Frontend
+        uses: zaproxy/action-full-scan@v0.12.0
+        continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
+        with:
+          target: http://localhost:3350
+          allow_issue_writing: false
+          fail_action: ${{ vars.SECURITY_GATE == 'true' }}
+          artifact_name: reporte-zap-frontend
+          cmd_options: -m 3
+
+      - name: ZAP API Scan - Backend (OpenAPI)
+        uses: zaproxy/action-api-scan@v0.10.0
+        timeout-minutes: 20
+        continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
+        with:
+          target: http://localhost:4450/openapi.json
+          format: openapi
+          allow_issue_writing: false
+          fail_action: ${{ vars.SECURITY_GATE == 'true' }}
+          artifact_name: reporte-zap-api
+
+      - name: Logs de contenedores
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Bajar staging
+        if: always()
+        run: docker compose down -v
+
+  # ---------------------------------------------------------------------------
+  # 5. DEPLOY - Publicar imágenes en GHCR (solo main, tras pasar todo lo anterior)
+  #    Usar el environment "production" permite exigir aprobación manual.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy (imágenes a GHCR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [secrets, backend, frontend, sca, sast, staging-dast]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar directorio de uploads
+        run: mkdir -p BACKEND/uploads
+
+      - name: Nombre de imagen en minúsculas
+        run: echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./BACKEND
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/atlas-backend:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/atlas-backend:latest
+
+      - name: Publicar frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./FRONTEND
+          push: true
+          build-args: |
+            VITE_API_URL=${{ vars.PRODUCTION_API_URL || 'http://localhost:4450' }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/atlas-frontend:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/atlas-frontend:latest
