@@ -55,10 +55,10 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # 2. BUILD + TEST - Backend (base de la pirámide: pruebas rápidas primero)
+  # 2. BUILD - Backend
   # ---------------------------------------------------------------------------
   backend:
-    name: Backend (build + test)
+    name: Backend (build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [secrets]
@@ -79,6 +79,29 @@ jobs:
 
       - name: Validar sintaxis
         run: find src -name '*.js' -print0 | xargs -0 -n1 node --check
+
+  # ---------------------------------------------------------------------------
+  # 2. TEST - Pruebas unitarias del backend (base de la pirámide: rápidas primero)
+  # ---------------------------------------------------------------------------
+  unit-tests:
+    name: Pruebas unitarias (backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend]
+    defaults:
+      run:
+        working-directory: BACKEND
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: BACKEND/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
 
       - name: Pruebas unitarias / humo con cobertura
         run: |
@@ -180,7 +203,7 @@ jobs:
     name: SAST SonarCloud
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend, frontend]
+    needs: [unit-tests, frontend]
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
@@ -210,6 +233,72 @@ jobs:
             -Dsonar.qualitygate.wait=${{ vars.SECURITY_GATE == 'true' }}
 
   # ---------------------------------------------------------------------------
+  # 3. TEST - Pruebas de frontend (E2E) con Playwright contra el staging efímero
+  #    Las pruebas viven en e2e/tests. --pass-with-no-tests evita fallar mientras no existan.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: Pruebas Frontend (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [unit-tests, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      # BACKEND/Dockerfile hace COPY uploads/ y ese directorio no está versionado.
+      - name: Preparar directorio de uploads
+        run: mkdir -p BACKEND/uploads
+
+      - name: Levantar staging (docker compose)
+        run: docker compose up -d --build
+
+      - name: Esperar servicios
+        run: |
+          for url in http://localhost:4450/ http://localhost:3350/; do
+            ok=0
+            for i in $(seq 1 40); do
+              if curl -fsS -o /dev/null "$url"; then ok=1; break; fi
+              sleep 3
+            done
+            [ "$ok" = 1 ] || { echo "::error::$url no respondió a tiempo"; docker compose logs; exit 1; }
+          done
+
+      - name: Instalar dependencias de Playwright
+        working-directory: e2e
+        run: npm ci
+
+      - name: Instalar navegador (Chromium)
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Ejecutar pruebas de Playwright
+        working-directory: e2e
+        env:
+          BASE_URL: http://localhost:3350
+        run: npx playwright test --pass-with-no-tests
+
+      - name: Publicar reporte de Playwright
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-playwright
+          path: e2e/playwright-report
+          if-no-files-found: ignore
+
+      - name: Logs de contenedores
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Bajar staging
+        if: always()
+        run: docker compose down -v
+
+  # ---------------------------------------------------------------------------
   # 4. DEPLOY STAGING + DAST - OWASP ZAP (Spider -> Active Scan -> Report)
   #    Solo contra el entorno efímero levantado en este runner (propio y autorizado).
   # ---------------------------------------------------------------------------
@@ -217,7 +306,7 @@ jobs:
     name: Staging + DAST (OWASP ZAP)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [backend, frontend]
+    needs: [unit-tests, frontend]
     steps:
       - uses: actions/checkout@v4
 
@@ -282,7 +371,7 @@ jobs:
     name: Deploy (imágenes a GHCR)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [secrets, backend, frontend, sca, sast, staging-dast]
+    needs: [secrets, backend, unit-tests, frontend, e2e, sca, sast, staging-dast]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
     permissions:
