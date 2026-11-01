@@ -234,7 +234,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 3. TEST - Pruebas de frontend (E2E) con Playwright contra el staging efímero
-  #    Las pruebas viven en e2e/tests. --pass-with-no-tests evita fallar mientras no existan.
+  #    Las pruebas viven en e2e/tests. Solo se instala y ejecuta Chromium (los demás
+  #    proyectos de e2e/playwright.config.ts requieren sus propios navegadores).
   # ---------------------------------------------------------------------------
   e2e:
     name: Pruebas Frontend (Playwright)
@@ -280,7 +281,7 @@ jobs:
         working-directory: e2e
         env:
           BASE_URL: http://localhost:3350
-        run: npx playwright test --pass-with-no-tests
+        run: npx playwright test --project=chromium
 
       - name: Publicar reporte de Playwright
         if: always()

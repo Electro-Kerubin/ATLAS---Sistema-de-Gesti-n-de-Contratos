@@ -1,10 +1,13 @@
 import { test, expect } from '@playwright/test';
+import { generarDatosRegistroUnicos } from '../utils/datos-unicos';
 
 test('Login | Registro de usuario con datos correctos', async ({ page }) => {
+  const { nombreUsuario, correo, correoEmpresa } = generarDatosRegistroUnicos();
+
   await page.goto('http://localhost:3350/login');
   await page.getByTestId('link-registro').click();
   await page.getByTestId('input-registro-nombre-usuario').click();
-  await page.getByTestId('input-registro-nombre-usuario').fill('usuarionuevo1');
+  await page.getByTestId('input-registro-nombre-usuario').fill(nombreUsuario);
   await page.getByTestId('input-registro-correo').click();
   await page.getByTestId('input-registro-correo').press('CapsLock');
   await page.getByTestId('input-registro-correo').fill('P');
@@ -14,7 +17,7 @@ test('Login | Registro de usuario con datos correctos', async ({ page }) => {
   await page.getByTestId('input-registro-correo').press('CapsLock');
   await page.getByTestId('input-registro-correo').fill('correotest1');
   await page.getByTestId('input-registro-correo').press('Alt+ControlOrMeta+@');
-  await page.getByTestId('input-registro-correo').fill('correotest1@correo.com');
+  await page.getByTestId('input-registro-correo').fill(correo);
   await page.getByTestId('input-registro-password').click();
   await page.getByTestId('input-registro-password').fill('');
   await page.getByTestId('input-registro-password').press('CapsLock');
@@ -36,9 +39,7 @@ test('Login | Registro de usuario con datos correctos', async ({ page }) => {
   await page.getByTestId('input-registro-telefono').click();
   await page.getByTestId('input-registro-telefono').fill('9123456');
   await page.getByTestId('input-registro-correo-empresa').click();
-  await page.getByTestId('input-registro-correo-empresa').fill('corpoemail');
-  await page.getByTestId('input-registro-correo-empresa').press('Alt+ControlOrMeta+@');
-  await page.getByTestId('input-registro-correo-empresa').fill('corpoemail@corpo.com');
+  await page.getByTestId('input-registro-correo-empresa').fill("correocorpo1@correo.com");
   await page.getByTestId('button-registro-crear-cuenta').click();
   await page.getByRole('listitem').click();
 });
