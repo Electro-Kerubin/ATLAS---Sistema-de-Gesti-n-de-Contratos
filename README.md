@@ -44,3 +44,4 @@ Abre la terminal y situate en la raíz del proyecto y ejecuta el comando:
 	4.3 Database: `atlas`
 	4.4 Nombre de usuario: `postgres`
 	4.5 Contraseña: `postgres`# ATLAS---Sistema-de-Gesti-n-de-Contratos
+
