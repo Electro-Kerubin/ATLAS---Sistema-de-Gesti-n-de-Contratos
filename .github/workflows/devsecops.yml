@@ -260,7 +260,7 @@ jobs:
   e2e:
     name: Pruebas Frontend (Playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     needs: [unit-tests, frontend]
     steps:
       - uses: actions/checkout@v4
@@ -301,6 +301,8 @@ jobs:
       # no bloquean el pipeline salvo que SECURITY_GATE = true, igual que los demás controles.
       - name: Ejecutar pruebas de Playwright
         working-directory: e2e
+        # Tope propio: si se excede, el paso falla pero el reporte y la limpieza igual se ejecutan.
+        timeout-minutes: 20
         continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
         env:
           BASE_URL: http://localhost:3350
