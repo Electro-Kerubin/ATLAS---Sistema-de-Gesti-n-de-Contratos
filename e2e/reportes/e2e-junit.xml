@@ -1,0 +1,46 @@
+<testsuites id="" name="" tests="3" failures="1" skipped="0" errors="0" time="44.156395999999994">
+<testsuite name="login-invalido.spec.ts" timestamp="2026-11-24T23:27:42.911Z" hostname="chromium" tests="1" failures="0" skipped="0" time="12.313" errors="0">
+<testcase name="Login - Credenciales inválidas muestra error y no inicia sesión" classname="login-invalido.spec.ts" time="12.313">
+</testcase>
+</testsuite>
+<testsuite name="negativo-crear-contrato-fechas-invertidas.spec.ts" timestamp="2026-11-24T23:27:42.911Z" hostname="chromium" tests="1" failures="1" skipped="0" time="24.305" errors="0">
+<testcase name="Negativo - Crear contrato con fecha fin anterior a fecha inicio debe ser rechazado" classname="negativo-crear-contrato-fechas-invertidas.spec.ts" time="24.305">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|..\test-results\negativo-crear-contrato-fe-fa9db-a-inicio-debe-ser-rechazado-chromium\error-context.md]]
+]]>
+</system-out>
+<failure message="expect(locator).toBeVisible() failed" type="expect.toBeVisible">
+<![CDATA[  [chromium] › negativo-crear-contrato-fechas-invertidas.spec.ts:5:5 › Negativo - Crear contrato con fecha fin anterior a fecha inicio debe ser rechazado 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('[data-sonner-toast][data-type="error"]').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" locator('[data-sonner-toast][data-type="error"]').first() with timeout 5000ms
+      - waiting for locator('[data-sonner-toast][data-type="error"]').first()
+
+
+      19 |   await page.getByRole('button', { name: 'Crear Contrato' }).click();
+      20 |
+    > 21 |   await expect(toastError(page)).toBeVisible({ timeout: 5000 });
+         |                                  ^
+      22 |   await expect(page.getByText('Contrato creado')).toHaveCount(0);
+      23 | });
+      24 |
+        at C:\Users\rbcir\Documents\rodrigo\Estudio\DUOC\Seguridad\ProyectoRepo\ATLAS---Sistema-de-Gesti-n-de-Contratos\e2e\tests\negativo-crear-contrato-fechas-invertidas.spec.ts:21:34
+
+    Error Context: ..\test-results\negativo-crear-contrato-fe-fa9db-a-inicio-debe-ser-rechazado-chromium\error-context.md
+]]>
+</failure>
+</testcase>
+</testsuite>
+<testsuite name="negativo-login-inyeccion-sql.spec.ts" timestamp="2026-11-24T23:27:42.911Z" hostname="chromium" tests="1" failures="0" skipped="0" time="4.899" errors="0">
+<testcase name="Negativo - Login con inyección SQL no debe iniciar sesión" classname="negativo-login-inyeccion-sql.spec.ts" time="4.899">
+</testcase>
+</testsuite>
+</testsuites>

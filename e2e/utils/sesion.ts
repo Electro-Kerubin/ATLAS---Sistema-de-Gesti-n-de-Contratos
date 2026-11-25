@@ -8,7 +8,7 @@ export async function loginAdmin(page: Page) {
   await page.getByTestId('input-nombre-usuario').fill('user1');
   await page.getByTestId('input-password').fill('Pass1234');
   await page.getByTestId('button-login').click();
-  await expect(page).not.toHaveURL(/\/login/);
+  await expect(page).not.toHaveURL(/\/login/, { timeout: 20000 });
 }
 
 /** Crea un contrato por la UI (pestaña "Crear Contrato") para un cliente ya existente. */
@@ -28,7 +28,7 @@ export async function crearContratoUI(
   await page.getByLabel('Descripción').fill('Contrato de prueba automatizada');
   if (archivo) await page.locator('input[type="file"]').setInputFiles(archivo);
   await page.getByRole('button', { name: 'Crear Contrato' }).click();
-  await expect(page.getByText('Contrato creado')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('Contrato creado')).toBeVisible({ timeout: 15000 });
 }
 
 /** Toast de error (sonner) visible en pantalla. */
@@ -42,7 +42,7 @@ export async function loginComo(page: Page, usuario: string, password: string) {
   await page.getByTestId('input-nombre-usuario').fill(usuario);
   await page.getByTestId('input-password').fill(password);
   await page.getByTestId('button-login').click();
-  await expect(page).not.toHaveURL(/\/login/);
+  await expect(page).not.toHaveURL(/\/login/, { timeout: 20000 });
 }
 
 /** Crea un usuario por la UI (pestaña "Crear Usuario"). */
@@ -62,7 +62,7 @@ export async function crearUsuarioUI(
     await page.getByRole('option', { name: rol }).click();
   }
   await page.getByRole('button', { name: 'Crear Usuario' }).click();
-  await expect(page.getByText('Usuario creado')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('Usuario creado')).toBeVisible({ timeout: 15000 });
 }
 
 /** Crea un cliente por la UI (pestaña "Crear Cliente"), con nombre y correo únicos. */
@@ -72,5 +72,5 @@ export async function crearClienteUI(page: Page, nombre: string, correo: string)
   await page.locator('#nombre-cliente-create').fill(nombre);
   await page.locator('#correo-cliente-create').fill(correo);
   await page.locator('#crear-cliente-create').click();
-  await expect(page.getByText('Cliente creado')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('Cliente creado')).toBeVisible({ timeout: 15000 });
 }

@@ -108,10 +108,11 @@ jobs:
       - name: Pruebas unitarias / humo con cobertura
         continue-on-error: ${{ vars.SECURITY_GATE != 'true' }}
         run: |
-          mkdir -p coverage
+          mkdir -p coverage reportes
           node --test --experimental-test-coverage --test-coverage-include="src/**" \
             --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=lcov --test-reporter-destination=coverage/lcov.info \
+            --test-reporter=junit --test-reporter-destination=reportes/unitarias-junit.xml \
             "tests/**/*.test.js"
 
       - name: Ajustar rutas del lcov a la raíz del repo (SonarCloud)
@@ -121,6 +122,22 @@ jobs:
         with:
           name: cobertura-backend
           path: BACKEND/coverage/lcov.info
+
+      # Reporte descargable de las pruebas unitarias (HTML + JUnit). Solo informa.
+      - name: Generar reporte de pruebas unitarias
+        if: always()
+        working-directory: .
+        run: node .github/scripts/generar-reporte.mjs BACKEND/reportes/unitarias-junit.xml BACKEND/reportes/reporte-unitarias.html
+
+      - name: Publicar reporte de pruebas unitarias
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-unitarias
+          path: |
+            BACKEND/reportes/reporte-unitarias.html
+            BACKEND/reportes/unitarias-junit.xml
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # 2. BUILD + TEST - Frontend
