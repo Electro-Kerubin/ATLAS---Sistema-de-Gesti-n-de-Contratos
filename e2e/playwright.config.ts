@@ -13,6 +13,8 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests',
+  /* Crea user1/Pass1234 si no existe (la base de CI solo trae admin y editor). */
+  globalSetup: './global-setup',
   /* El backend demora 4 s a propósito (login y listados): margen para CI. */
   expect: { timeout: 15000 },
   /* Run tests in files in parallel */
