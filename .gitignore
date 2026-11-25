@@ -1,0 +1,9 @@
+BACKEND/node_modules
+FRONTEND/node_modules
+.credenciales
+docs
+skills
+e2e/node_modules
+e2e/test-results
+e2e/playwright-report
+BACKEND/reportes
